@@ -8,10 +8,33 @@ from sklearn.metrics import accuracy_score
 
 st.set_page_config(page_title="Customer Churn Prediction", layout="wide")
 
-st.title("🛒 Customer Churn Prediction System")
-st.write("This app predicts whether a customer may leave the service based on shopping behavior.")
+st.markdown("""
+<style>
+.stButton>button {
+    background-color: #2E8B57;
+    color: white;
+    border-radius: 10px;
+    height: 3em;
+    width: 100%;
+    font-weight: bold;
+}
+</style>
+""", unsafe_allow_html=True)
 
-df = pd.read_csv("customer_churn_10000.csv")
+st.title("🛒 Customer Churn Prediction System")
+st.write("AI-based system to predict whether a customer may leave the service.")
+
+st.sidebar.title("About Project")
+st.sidebar.info(
+    "This Customer Churn Prediction app uses machine learning to analyze customer "
+    "behavior and predict whether a customer is likely to churn or stay."
+)
+
+@st.cache_data
+def load_data():
+    return pd.read_csv("customer_churn_10000.csv")
+
+df = load_data()
 
 df = df.drop("customer_id", axis=1)
 
@@ -37,16 +60,20 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-model = RandomForestClassifier(random_state=42)
-model.fit(X_train, y_train)
+@st.cache_resource
+def train_model():
+    model = RandomForestClassifier(n_estimators=150, random_state=42)
+    model.fit(X_train, y_train)
+    return model
 
-y_pred = model.predict(X_test)
-accuracy = accuracy_score(y_test, y_pred)
+model = train_model()
+
+accuracy = accuracy_score(y_test, model.predict(X_test))
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Customers", len(df))
 col2.metric("Model Accuracy", f"{accuracy * 100:.2f}%")
-col3.metric("Input Features", len(X.columns))
+col3.metric("Features Used", len(X.columns))
 
 st.divider()
 
@@ -55,18 +82,20 @@ st.subheader("Enter Customer Details")
 col1, col2 = st.columns(2)
 
 with col1:
-    age = st.number_input("Age", min_value=18, max_value=80, value=25)
+    age = st.slider("Age", 18, 80, 25)
     gender = st.selectbox("Gender", le_gender.classes_)
     annual_income = st.number_input("Annual Income", min_value=0, value=40000)
     spending_score = st.slider("Spending Score", 0, 100, 50)
 
 with col2:
-    membership_years = st.number_input("Membership Years", min_value=0, max_value=20, value=2)
+    membership_years = st.slider("Membership Years", 0, 20, 2)
     preferred_category = st.selectbox("Preferred Category", le_category.classes_)
     online_purchases = st.number_input("Online Purchases", min_value=0, value=20)
     store_visits = st.number_input("Store Visits", min_value=0, value=5)
 
-if st.button("Predict Churn"):
+st.divider()
+
+if st.button("Predict Customer Churn"):
     gender_encoded = le_gender.transform([gender])[0]
     category_encoded = le_category.transform([preferred_category])[0]
 
@@ -82,15 +111,60 @@ if st.button("Predict Churn"):
     ]], columns=X.columns)
 
     prediction = model.predict(input_data)[0]
+    churn_probability = model.predict_proba(input_data)[0][1]
+
+    st.subheader("Prediction Result")
+
+    if churn_probability >= 0.70:
+        risk_level = "High Risk"
+    elif churn_probability >= 0.40:
+        risk_level = "Medium Risk"
+    else:
+        risk_level = "Low Risk"
 
     if prediction == 1:
-        st.error("⚠️ Prediction: Customer is likely to churn")
-        st.write("This customer may stop using the service. Offer discounts, loyalty points, or personalized support.")
+        st.error(f"Customer is likely to churn")
+        st.warning(f"Risk Level: {risk_level}")
+        st.write("Suggestion: Offer discounts, loyalty rewards, personalized offers, or customer support.")
     else:
-        st.success("✅ Prediction: Customer is likely to stay")
-        st.write("This customer seems satisfied and active.")
+        st.success("Customer is likely to stay")
+        st.info(f"Risk Level: {risk_level}")
+        st.write("Suggestion: Maintain good service quality and continue personalized engagement.")
+
+    st.metric("Churn Probability", f"{churn_probability * 100:.2f}%")
+
+    report = pd.DataFrame({
+        "Age": [age],
+        "Gender": [gender],
+        "Annual Income": [annual_income],
+        "Spending Score": [spending_score],
+        "Membership Years": [membership_years],
+        "Preferred Category": [preferred_category],
+        "Online Purchases": [online_purchases],
+        "Store Visits": [store_visits],
+        "Prediction": ["Churn" if prediction == 1 else "Stay"],
+        "Risk Level": [risk_level],
+        "Churn Probability": [f"{churn_probability * 100:.2f}%"]
+    })
+
+    csv = report.to_csv(index=False)
+
+    st.download_button(
+        label="Download Prediction Report",
+        data=csv,
+        file_name="customer_churn_prediction_report.csv",
+        mime="text/csv"
+    )
 
 st.divider()
 
-st.subheader("Dataset Preview")
-st.dataframe(df.head())
+st.subheader("Feature Importance")
+
+importance_df = pd.DataFrame({
+    "Feature": X.columns,
+    "Importance": model.feature_importances_
+}).sort_values(by="Importance", ascending=False)
+
+st.bar_chart(importance_df.set_index("Feature"))
+
+st.caption("Developed using Streamlit and Machine Learning")
